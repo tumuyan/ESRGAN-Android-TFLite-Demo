@@ -137,6 +137,22 @@ public class MainActivity extends AppCompatActivity {
       setLRImageViewListener(iv);
     }
 
+    findViewById(R.id.save_button).setOnClickListener(new View.OnClickListener() {
+      @Override
+      public void onClick(View v) {
+        if(srBitmap != null){
+
+          MediaStore.Images.Media.insertImage(getContentResolver(), srBitmap, "4X", "TFLite SR demo");
+          Toast.makeText(
+                  getApplicationContext(),
+                  "Saved!",
+                  Toast.LENGTH_LONG)
+                  .show();
+        }
+
+      }
+    });
+
     superResolutionButton.setOnClickListener(
         new View.OnClickListener() {
           @Override
