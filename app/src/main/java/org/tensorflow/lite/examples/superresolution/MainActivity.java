@@ -76,7 +76,6 @@ public class MainActivity extends AppCompatActivity {
   private static final String LR_IMG_2 = "lr-2.jpg";
   private static final String LR_IMG_3 = "lr-3.jpg";
   private static final String LR_IMG_4 = "lr-4.jpg";
-  private int progress = 0;
   private long processingTimeMs;
 
   private MappedByteBuffer model;
@@ -88,10 +87,10 @@ public class MainActivity extends AppCompatActivity {
   private ImageView lowResImageView1;
   private ImageView lowResImageView2;
   private ImageView lowResImageView3;
-  private   PhotoView srPhotoView;
+  private PhotoView srPhotoView;
   private TextView selectedImageTextView;
   private TextView progressTextView;
-  private  TextView logTextView;
+  private TextView logTextView;
   private Switch gpuSwitch;
   private UIHandler UIhandler;
 
@@ -119,15 +118,15 @@ public class MainActivity extends AppCompatActivity {
 
     AssetManager assetManager = getAssets();
     try {
-      InputStream inputStream1 = assetManager.open(LR_IMG_0);
+      InputStream inputStream1 = assetManager.open(LR_IMG_1);
       Bitmap bitmap1 = BitmapFactory.decodeStream(inputStream1);
       lowResImageView1.setImageBitmap(bitmap1);
 
-      InputStream inputStream2 = assetManager.open(LR_IMG_2);
+      InputStream inputStream2 = assetManager.open(LR_IMG_4);
       Bitmap bitmap2 = BitmapFactory.decodeStream(inputStream2);
       lowResImageView2.setImageBitmap(bitmap2);
 
-      InputStream inputStream3 = assetManager.open(LR_IMG_4);
+      InputStream inputStream3 = assetManager.open(LR_IMG_0);
       Bitmap bitmap3 = BitmapFactory.decodeStream(inputStream3);
       lowResImageView3.setImageBitmap(bitmap3);
     } catch (IOException e) {
@@ -151,8 +150,9 @@ public class MainActivity extends AppCompatActivity {
               return;
             }
 
-
+            srPhotoView.setImageDrawable(null);
             selectedPhotoView.setImageBitmap(selectedLRBitmap);
+            progressTextView.setText("loading...");
 
             if (superResolutionNativeHandle == 0) {
                 superResolutionNativeHandle = initTFLiteInterpreter(gpuSwitch.isChecked());
@@ -167,12 +167,11 @@ public class MainActivity extends AppCompatActivity {
               return;
             }
 
-            srPhotoView.setImageDrawable(null);
             UIhandler = new UIHandler();
             new Thread(new Runnable() {
               @Override
               public void run() {
-                srBitmap = doSuperResolution();
+                doSuperResolution();
               }
             }).start();
 
@@ -208,13 +207,11 @@ public class MainActivity extends AppCompatActivity {
       Bundle bundle = msg.getData();
       String progress = bundle.getString("progress");
 
-      if (srBitmap == null) {
-        showToast("Something unexpected!");
-      } else {
-        srPhotoView.setImageBitmap(srBitmap);
+      if(progress!=null){
         progressTextView.setText(progress);
         logTextView.setText(progress);
       }
+      srPhotoView.setImageBitmap(srBitmap);
     }
   }
 
@@ -258,24 +255,19 @@ public class MainActivity extends AppCompatActivity {
           try {
             selectedLRBitmap = MediaStore.Images.Media.getBitmap(this.getContentResolver(), uri);
             selectedImageTextView.setText(
-                    "You are using low resolution image:  ("
+                    "You opened low resolution image:  ("
                             + data.toString()
                             + ")");
           } catch (IOException e) {
             e.printStackTrace();
             showToast("Pick photo failed!");
           }
-
-
-
         }
-
         break;
       default:
         break;
     }
     super.onActivityResult(requestCode, resultCode, data);
-
   }
 
 
@@ -293,21 +285,15 @@ public class MainActivity extends AppCompatActivity {
             if (v.equals(lowResImageView1)) {
               selectedLRBitmap = ((BitmapDrawable) lowResImageView1.getDrawable()).getBitmap();
               selectedImageTextView.setText(
-                  "You are using low resolution image: 1 ("
-                      + getResources().getString(R.string.low_resolution_1)
-                      + ")");
+                  "You are using low resolution image: 1");
             } else if (v.equals(lowResImageView2)) {
               selectedLRBitmap = ((BitmapDrawable) lowResImageView2.getDrawable()).getBitmap();
               selectedImageTextView.setText(
-                  "You are using low resolution image: 2 ("
-                      + getResources().getString(R.string.low_resolution_2)
-                      + ")");
+                  "You are using low resolution image: 2");
             } else if (v.equals(lowResImageView3)) {
               selectedLRBitmap = ((BitmapDrawable) lowResImageView3.getDrawable()).getBitmap();
               selectedImageTextView.setText(
-                  "You are using low resolution image: 3 ("
-                      + getResources().getString(R.string.low_resolution_3)
-                      + ")");
+                  "You are using low resolution image: 3");
             }
             return false;
           }
@@ -315,7 +301,7 @@ public class MainActivity extends AppCompatActivity {
   }
 
   @WorkerThread
-  public synchronized Bitmap doSuperResolution() {
+  public synchronized void doSuperResolution() {
     final long startTime = SystemClock.uptimeMillis();
     int progress = 0;
     int w = selectedLRBitmap.getWidth();
@@ -327,32 +313,37 @@ public class MainActivity extends AppCompatActivity {
     int max_w = max_a * IN_WIDTH;
     int max_h = max_b * IN_HEIGHT;
 
-    Bitmap srImgBitmap = Bitmap.createBitmap(max_a*OUT_WIDTH,max_b*OUT_HEIGHT, Bitmap.Config.ARGB_8888);
+    srBitmap = Bitmap.createBitmap(w*UPSCALE_FACTOR,h*UPSCALE_FACTOR, Bitmap.Config.ARGB_8888);
     Bitmap inputBitmap = Bitmap.createBitmap(selectedLRBitmap,0,0,w,h);
 
     for(int a = 0; a<max_a;a++){
       Message msg = new Message();
-      Bundle bundle = new Bundle();
-      bundle.putString("progress", "" +  a + "/" + max_a);
-      msg.setData(bundle);
+      if(a!=0){
+        Bundle bundle = new Bundle();
+        bundle.putString("progress", "progress: " +  a + "/" + max_a
+                + ", need " +  (SystemClock.uptimeMillis() - startTime)/a*(max_a -a) + "ms");
+        msg.setData(bundle);
+      }
       MainActivity.this.UIhandler.sendMessage(msg);
 
-      int in_width = (max_a-a==1)?w-a*IN_WIDTH:IN_WIDTH;
+//      int in_width = (max_a-a==1)?w-a*IN_WIDTH:IN_WIDTH;
+      int x = (max_a-a==1)?(w-IN_WIDTH):IN_WIDTH*a;
 
       for(int b=0;b<max_b;b++){
-        int in_height = (max_b-b==1)?h-b*IN_HEIGHT:IN_HEIGHT;
+//        int in_height = (max_b-b==1)?h-b*IN_HEIGHT:IN_HEIGHT;
+        int y = (max_b-b==1)?h-IN_HEIGHT:IN_HEIGHT*b;
         int[] lowResRGB = new int[IN_WIDTH*IN_HEIGHT];
 
         inputBitmap.getPixels(
-                lowResRGB, 0, IN_WIDTH, IN_WIDTH*a, IN_HEIGHT*b, in_width, in_height);
+                lowResRGB, 0, IN_WIDTH,x , y, IN_WIDTH, IN_HEIGHT);
 
-        srImgBitmap.setPixels(
+        srBitmap.setPixels(
                 superResolutionFromJNI(superResolutionNativeHandle, lowResRGB)
                 ,0,OUT_WIDTH
-                ,OUT_WIDTH*a,OUT_HEIGHT*b,in_width*UPSCALE_FACTOR,in_height*UPSCALE_FACTOR);
+                ,UPSCALE_FACTOR*x,UPSCALE_FACTOR*y,OUT_WIDTH,OUT_HEIGHT);
         if(progress<0){
           processingTimeMs = -1;
-          return null;
+          return ;
         }
         progress ++;
       }
@@ -364,18 +355,11 @@ public class MainActivity extends AppCompatActivity {
     msg.setData(bundle);
     MainActivity.this.UIhandler.sendMessage(msg);
 
-    if(max_a*IN_WIDTH == w && max_b*IN_HEIGHT==h){
-      return  srImgBitmap;
-    }else{
-      return Bitmap.createBitmap(Bitmap.createBitmap(srImgBitmap,0,0,w*UPSCALE_FACTOR,h*UPSCALE_FACTOR));
-    }
-
   }
 
 
   @WorkerThread
   public synchronized int[] doSuperResolution(int[] lowResRGB, int w, int h) {
-
     return superResolutionFromJNI(superResolutionNativeHandle, lowResRGB);
   }
 
