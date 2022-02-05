@@ -10,4 +10,7 @@
     <string name="natively_scaled_image" translatable="false">Android ImageView-scaled image:</string>
     <string name="upsample" translatable="false">Upsample</string>
     <string name="gpu" translatable="false">GPU</string>
+    <string name="save">Save</string>
+    <string name="open">Open</string>
+    <string name="share">Share</string>
 </resources>

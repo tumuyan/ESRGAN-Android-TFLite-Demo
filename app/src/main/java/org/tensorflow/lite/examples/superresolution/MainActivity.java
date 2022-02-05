@@ -16,14 +16,24 @@
 
 package org.tensorflow.lite.examples.superresolution;
 
+import android.Manifest;
+import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.content.res.AssetFileDescriptor;
 import android.content.res.AssetManager;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.drawable.BitmapDrawable;
+import android.net.Uri;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Message;
 import android.os.SystemClock;
+
+import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
+
+import android.provider.MediaStore;
 import android.util.Log;
 import android.view.MotionEvent;
 import android.view.View;
@@ -34,6 +44,11 @@ import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
 import androidx.annotation.WorkerThread;
+import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
+
+import com.github.chrisbanes.photoview.PhotoView;
+
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -42,41 +57,61 @@ import java.nio.channels.FileChannel;
 
 /** A super resolution class to generate super resolution images from low resolution images * */
 public class MainActivity extends AppCompatActivity {
+  private static final int PICK_PHOTO = 100;
+  private static final int MY_PERMISSIONS_REQUEST_CALL_PHONE2 = 101;
+
   static {
     System.loadLibrary("SuperResolution");
   }
 
   private static final String TAG = "SuperResolution";
   private static final String MODEL_NAME = "ESRGAN.tflite";
-  private static final int LR_IMAGE_HEIGHT = 50;
-  private static final int LR_IMAGE_WIDTH = 50;
+  private static final int IN_HEIGHT = 50;
+  private static final int IN_WIDTH = 50;
   private static final int UPSCALE_FACTOR = 4;
-  private static final int SR_IMAGE_HEIGHT = LR_IMAGE_HEIGHT * UPSCALE_FACTOR;
-  private static final int SR_IMAGE_WIDTH = LR_IMAGE_WIDTH * UPSCALE_FACTOR;
+  private static final int OUT_HEIGHT = IN_HEIGHT * UPSCALE_FACTOR;
+  private static final int OUT_WIDTH = IN_WIDTH * UPSCALE_FACTOR;
+  private static final String LR_IMG_0 = "lr-0.jpg";
   private static final String LR_IMG_1 = "lr-1.jpg";
   private static final String LR_IMG_2 = "lr-2.jpg";
   private static final String LR_IMG_3 = "lr-3.jpg";
+  private static final String LR_IMG_4 = "lr-4.jpg";
+  private int progress = 0;
+  private long processingTimeMs;
 
   private MappedByteBuffer model;
   private long superResolutionNativeHandle = 0;
   private Bitmap selectedLRBitmap = null;
+  private Bitmap srBitmap = null;
   private boolean useGPU = false;
 
   private ImageView lowResImageView1;
   private ImageView lowResImageView2;
   private ImageView lowResImageView3;
+  private   PhotoView srPhotoView;
   private TextView selectedImageTextView;
+  private TextView progressTextView;
+  private  TextView logTextView;
   private Switch gpuSwitch;
+  private UIHandler UIhandler;
 
   @Override
   protected void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
     setContentView(R.layout.activity_main);
 
+    requirePremision();
+
     final Button superResolutionButton = findViewById(R.id.upsample_button);
     lowResImageView1 = findViewById(R.id.low_resolution_image_1);
     lowResImageView2 = findViewById(R.id.low_resolution_image_2);
     lowResImageView3 = findViewById(R.id.low_resolution_image_3);
+    progressTextView = findViewById(R.id.progress_tv);
+    logTextView = findViewById(R.id.log_view);
+
+    srPhotoView = (PhotoView) findViewById(R.id.sr_view);
+    PhotoView selectedPhotoView = (PhotoView) findViewById(R.id.selected_view);
+
     selectedImageTextView = findViewById(R.id.chosen_image_tv);
     gpuSwitch = findViewById(R.id.switch_use_gpu);
 
@@ -84,7 +119,7 @@ public class MainActivity extends AppCompatActivity {
 
     AssetManager assetManager = getAssets();
     try {
-      InputStream inputStream1 = assetManager.open(LR_IMG_1);
+      InputStream inputStream1 = assetManager.open(LR_IMG_0);
       Bitmap bitmap1 = BitmapFactory.decodeStream(inputStream1);
       lowResImageView1.setImageBitmap(bitmap1);
 
@@ -92,7 +127,7 @@ public class MainActivity extends AppCompatActivity {
       Bitmap bitmap2 = BitmapFactory.decodeStream(inputStream2);
       lowResImageView2.setImageBitmap(bitmap2);
 
-      InputStream inputStream3 = assetManager.open(LR_IMG_3);
+      InputStream inputStream3 = assetManager.open(LR_IMG_4);
       Bitmap bitmap3 = BitmapFactory.decodeStream(inputStream3);
       lowResImageView3.setImageBitmap(bitmap3);
     } catch (IOException e) {
@@ -116,6 +151,9 @@ public class MainActivity extends AppCompatActivity {
               return;
             }
 
+
+            selectedPhotoView.setImageBitmap(selectedLRBitmap);
+
             if (superResolutionNativeHandle == 0) {
                 superResolutionNativeHandle = initTFLiteInterpreter(gpuSwitch.isChecked());
             } else if (useGPU != gpuSwitch.isChecked()) {
@@ -129,38 +167,117 @@ public class MainActivity extends AppCompatActivity {
               return;
             }
 
-            int[] lowResRGB = new int[LR_IMAGE_HEIGHT * LR_IMAGE_WIDTH];
-            selectedLRBitmap.getPixels(
-                lowResRGB, 0, LR_IMAGE_WIDTH, 0, 0, LR_IMAGE_WIDTH, LR_IMAGE_HEIGHT);
+            srPhotoView.setImageDrawable(null);
+            UIhandler = new UIHandler();
+            new Thread(new Runnable() {
+              @Override
+              public void run() {
+                srBitmap = doSuperResolution();
+              }
+            }).start();
 
-            final long startTime = SystemClock.uptimeMillis();
-            int[] superResRGB = doSuperResolution(lowResRGB);
-            final long processingTimeMs = SystemClock.uptimeMillis() - startTime;
-            if (superResRGB == null) {
-              showToast("Super resolution failed!");
-              return;
-            }
-
-            final LinearLayout resultLayout = findViewById(R.id.result_layout);
-            final ImageView superResolutionImageView = findViewById(R.id.super_resolution_image);
-            final ImageView nativelyScaledImageView = findViewById(R.id.natively_scaled_image);
-            final TextView superResolutionTextView = findViewById(R.id.super_resolution_tv);
-            final TextView nativelyScaledImageTextView =
-                findViewById(R.id.natively_scaled_image_tv);
-            final TextView logTextView = findViewById(R.id.log_view);
-
-            // Force refreshing the ImageView
-            superResolutionImageView.setImageDrawable(null);
-            Bitmap srImgBitmap =
-                Bitmap.createBitmap(
-                    superResRGB, SR_IMAGE_WIDTH, SR_IMAGE_HEIGHT, Bitmap.Config.ARGB_8888);
-            superResolutionImageView.setImageBitmap(srImgBitmap);
-            nativelyScaledImageView.setImageBitmap(selectedLRBitmap);
-            resultLayout.setVisibility(View.VISIBLE);
-            logTextView.setText("Inference time: " + processingTimeMs + "ms");
           }
         });
+
+
+    //从相册选择图片
+    findViewById(R.id.open_button).setOnClickListener(new View.OnClickListener() {
+      @Override
+      public void onClick(View v) {
+        //动态申请获取访问 读写磁盘的权限
+        if (ContextCompat.checkSelfPermission(MainActivity.this,
+                Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
+          ActivityCompat.requestPermissions(MainActivity.this, new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE}, 101);
+        } else {
+          //打开相册
+          Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
+          //Intent.ACTION_GET_CONTENT = "android.intent.action.GET_CONTENT"
+          intent.setType("image/*");
+          startActivityForResult(intent, PICK_PHOTO); // 打开相册
+        }
+      }
+    });
+
   }
+
+  private class UIHandler extends Handler {
+    @Override
+    public void handleMessage(Message msg) {
+      // TODO Auto-generated method stub
+      super.handleMessage(msg);
+      Bundle bundle = msg.getData();
+      String progress = bundle.getString("progress");
+
+      if (srBitmap == null) {
+        showToast("Something unexpected!");
+      } else {
+        srPhotoView.setImageBitmap(srBitmap);
+        progressTextView.setText(progress);
+        logTextView.setText(progress);
+      }
+    }
+  }
+
+  private void requirePremision() {
+    if (ContextCompat.checkSelfPermission(this,
+            Manifest.permission.WRITE_EXTERNAL_STORAGE)
+            != PackageManager.PERMISSION_GRANTED)
+    {
+      ActivityCompat.requestPermissions(this,
+              new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE},
+              MY_PERMISSIONS_REQUEST_CALL_PHONE2);
+    }else {
+      //权限已经被授予，在这里直接写要执行的相应方法即可
+    }
+  }
+
+  @Override
+  public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults)
+  {
+    if (requestCode == MY_PERMISSIONS_REQUEST_CALL_PHONE2)
+    {
+      if (grantResults[0] == PackageManager.PERMISSION_GRANTED)
+      {
+
+      } else
+      {
+        // Permission Denied
+        Toast.makeText(MainActivity.this, "Permission Denied", Toast.LENGTH_SHORT).show();
+      }
+    }
+    super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+  }
+
+
+  @Override
+  protected void onActivityResult(int requestCode, int resultCode, @Nullable Intent data) {
+    switch (requestCode) {
+      case PICK_PHOTO:
+        if (resultCode == RESULT_OK && null != data) { // 判断手机系统版本号
+          Uri uri = data.getData();
+          try {
+            selectedLRBitmap = MediaStore.Images.Media.getBitmap(this.getContentResolver(), uri);
+            selectedImageTextView.setText(
+                    "You are using low resolution image:  ("
+                            + data.toString()
+                            + ")");
+          } catch (IOException e) {
+            e.printStackTrace();
+            showToast("Pick photo failed!");
+          }
+
+
+
+        }
+
+        break;
+      default:
+        break;
+    }
+    super.onActivityResult(requestCode, resultCode, data);
+
+  }
+
 
   @Override
   public void onDestroy() {
@@ -198,7 +315,67 @@ public class MainActivity extends AppCompatActivity {
   }
 
   @WorkerThread
-  public synchronized int[] doSuperResolution(int[] lowResRGB) {
+  public synchronized Bitmap doSuperResolution() {
+    final long startTime = SystemClock.uptimeMillis();
+    int progress = 0;
+    int w = selectedLRBitmap.getWidth();
+    int h = selectedLRBitmap.getHeight();
+
+    int max_a = (int)Math.ceil ((float)w/IN_WIDTH);
+    int max_b = (int)Math.ceil((float)h/IN_HEIGHT);
+
+    int max_w = max_a * IN_WIDTH;
+    int max_h = max_b * IN_HEIGHT;
+
+    Bitmap srImgBitmap = Bitmap.createBitmap(max_a*OUT_WIDTH,max_b*OUT_HEIGHT, Bitmap.Config.ARGB_8888);
+    Bitmap inputBitmap = Bitmap.createBitmap(selectedLRBitmap,0,0,w,h);
+
+    for(int a = 0; a<max_a;a++){
+      Message msg = new Message();
+      Bundle bundle = new Bundle();
+      bundle.putString("progress", "" +  a + "/" + max_a);
+      msg.setData(bundle);
+      MainActivity.this.UIhandler.sendMessage(msg);
+
+      int in_width = (max_a-a==1)?w-a*IN_WIDTH:IN_WIDTH;
+
+      for(int b=0;b<max_b;b++){
+        int in_height = (max_b-b==1)?h-b*IN_HEIGHT:IN_HEIGHT;
+        int[] lowResRGB = new int[IN_WIDTH*IN_HEIGHT];
+
+        inputBitmap.getPixels(
+                lowResRGB, 0, IN_WIDTH, IN_WIDTH*a, IN_HEIGHT*b, in_width, in_height);
+
+        srImgBitmap.setPixels(
+                superResolutionFromJNI(superResolutionNativeHandle, lowResRGB)
+                ,0,OUT_WIDTH
+                ,OUT_WIDTH*a,OUT_HEIGHT*b,in_width*UPSCALE_FACTOR,in_height*UPSCALE_FACTOR);
+        if(progress<0){
+          processingTimeMs = -1;
+          return null;
+        }
+        progress ++;
+      }
+    }
+    processingTimeMs = SystemClock.uptimeMillis() - startTime;
+    Message msg = new Message();
+    Bundle bundle = new Bundle();
+    bundle.putString("progress", "Inference time: " + processingTimeMs + "ms");
+    msg.setData(bundle);
+    MainActivity.this.UIhandler.sendMessage(msg);
+
+    if(max_a*IN_WIDTH == w && max_b*IN_HEIGHT==h){
+      return  srImgBitmap;
+    }else{
+      return Bitmap.createBitmap(Bitmap.createBitmap(srImgBitmap,0,0,w*UPSCALE_FACTOR,h*UPSCALE_FACTOR));
+    }
+
+  }
+
+
+  @WorkerThread
+  public synchronized int[] doSuperResolution(int[] lowResRGB, int w, int h) {
+
     return superResolutionFromJNI(superResolutionNativeHandle, lowResRGB);
   }
 

@@ -5,8 +5,7 @@
     android:layout_height="match_parent"
     android:background="#00000000">
 
-    <RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
-        xmlns:tools="http://schemas.android.com/tools"
+    <RelativeLayout
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         tools:context=".MainActivity">
@@ -29,7 +28,7 @@
             android:layout_height="match_parent"
             android:paddingTop="?attr/actionBarSize">
 
-            <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+            <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
                 android:orientation="vertical">
@@ -44,6 +43,31 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:orientation="horizontal">
+
+                    <Button
+                        android:id="@+id/open_button"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/open" />
+                    <Button
+                        android:id="@+id/upsample_button"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/upsample" />
+
+                    <Button
+                        android:id="@+id/save_button"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/save"
+                        android:visibility="gone" />
+
+                    <Button
+                        android:id="@+id/share_button"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/share"
+                        android:visibility="gone" />
 
                     <ImageView
                         android:id="@+id/low_resolution_image_1"
@@ -74,23 +98,18 @@
                     android:textSize="14sp" />
 
                 <TextView
+                    android:id="@+id/progress_tv"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="@string/simple_explanation"
                     android:textSize="12sp" />
 
-                <Button
-                    android:id="@+id/upsample_button"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="@string/upsample" />
-
                 <LinearLayout
                     android:id="@+id/result_layout"
-                    android:layout_width="wrap_content"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:orientation="vertical"
-                    android:visibility="invisible">
+                    android:orientation="vertical">
+
                     <TextView
                         android:id="@+id/super_resolution_tv"
                         android:layout_width="wrap_content"
@@ -98,25 +117,27 @@
                         android:text="@string/super_resolution_image"
                         android:textSize="14sp" />
 
-                    <ImageView
-                        android:id="@+id/super_resolution_image"
-                        android:layout_width="200dp"
-                        android:layout_height="200dp"
+                    <com.github.chrisbanes.photoview.PhotoView
+                        android:id="@+id/sr_view"
+                        android:layout_width="400dp"
+                        android:layout_height="400dp"
                         android:contentDescription="@string/super_resolution_image" />
 
                     <TextView
                         android:id="@+id/natively_scaled_image_tv"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
+                        android:minWidth="300dp"
                         android:paddingTop="10dp"
                         android:text="@string/natively_scaled_image"
                         android:textSize="14sp" />
 
-                    <ImageView
-                        android:id="@+id/natively_scaled_image"
-                        android:layout_width="200dp"
-                        android:layout_height="200dp"
-                        android:contentDescription="@string/natively_scaled_image" />
+                    <com.github.chrisbanes.photoview.PhotoView
+                        android:id="@+id/selected_view"
+                        android:layout_width="400dp"
+                        android:layout_height="400dp"
+                        android:contentDescription="@string/natively_scaled_image"
+                        android:minWidth="300dp" />
 
                     <Space
                         android:layout_width="match_parent"
